@@ -68,23 +68,59 @@ case class Motor(device: Device, motor1: MotorState, motor2: MotorState) {
   def disable(): IO[Either[MotorError, Motor]] = enable(StepMode.MotorDisabled, StepMode.MotorDisabled)
 
   /**
+   * Clears the global step positions of the motors.
+   *
+   * @return an `IO` effect that represents the result of clearing the step positions
+   */
+  def clearStepPositions: IO[Either[MotorError, Motor]] =
+    device.sendCommand("CS").attempt.flatMap {
+      case Right(_) =>
+        val updatedMotor1 = motor1.copy(position = 0)
+        val updatedMotor2 = motor2.copy(position = 0)
+        val updatedMotor = this.copy(motor1 = updatedMotor1, motor2 = updatedMotor2)
+        IO.pure(Right(this))
+      case Left(error) => IO.pure(Left(MotorError.CommandError(error.getMessage)))
+    }
+
+  /**
    * Moves the motors to the specified positions with the given duration.
    *
    * @param position1 the position for motor 1
    * @param position2 the position for motor 2
    * @return a function that takes the duration and returns an `IO` effect representing the result of moving the motors
    */
-  def move(position1: Int, position2: Int): Int => IO[Either[MotorError, Motor]] = {
-    duration =>
-      val command = s"SM,$duration,${position1},${position2}\r"
-      device.sendCommand(command).flatMap {
-        case Right(_) =>
-          val updatedMotor1 = motor1.copy(position = position1)
-          val updatedMotor2 = motor2.copy(position = position2)
-          val updatedMotor = this.copy(motor1 = updatedMotor1, motor2 = updatedMotor2)
-          IO.pure(Right(updatedMotor))
-        case Left(error) => IO.pure(Left(MotorError.CommandError(error.message)))
-      }
+  def move(position1: Int, position2: Int): Int => IO[Either[MotorError, Motor]] = { duration =>
+    val command = s"SM,$duration,${position1},${position2}"
+    device.sendCommand(command).flatMap {
+      case Right(_) =>
+        val updatedMotor1 = motor1.copy(position = position1)
+        val updatedMotor2 = motor2.copy(position = position2)
+        val updatedMotor = this.copy(motor1 = updatedMotor1, motor2 = updatedMotor2)
+        IO.pure(Right(updatedMotor))
+      case Left(error) => IO.pure(Left(MotorError.CommandError(error.message)))
+    }
+  }
+
+  /**
+   * Moves the motors to the specified positions using the XM command with the given duration.
+   *
+   * @param axisStepsA the steps for Axis A
+   * @param axisStepsB the steps for Axis B
+   * @return a function that takes the duration and returns an `IO` effect representing the result of moving the motors
+   */
+  def moveMixed(axisStepsA: Int, axisStepsB: Int): Int => IO[Either[MotorError, Motor]] = { duration =>
+    val command = s"XM,$duration,${axisStepsA},${axisStepsB}"
+    device.sendCommand(command).flatMap {
+      case Right(_) =>
+        // Here we update positions as the sum and difference of the steps for mixed-axis geometry
+        val updatedPosition1 = motor1.position + axisStepsA + axisStepsB
+        val updatedPosition2 = motor2.position + axisStepsA - axisStepsB
+        val updatedMotor1 = motor1.copy(position = updatedPosition1)
+        val updatedMotor2 = motor2.copy(position = updatedPosition2)
+        val updatedMotor = this.copy(motor1 = updatedMotor1, motor2 = updatedMotor2)
+        IO.pure(Right(updatedMotor))
+      case Left(error) => IO.pure(Left(MotorError.CommandError(error.message)))
+    }
   }
 
   /**
@@ -96,8 +132,8 @@ case class Motor(device: Device, motor1: MotorState, motor2: MotorState) {
    *         If the command is successfully sent and the motor status is obtained, it returns `Right(this)`.
    *         Otherwise, it returns `Left` with a specific `MotorError` indicating the cause of the error.
    */
-  def queryStatus: IO[Either[MotorError, Motor]] = {
-    device.sendCommand("QM\r").attempt.flatMap {
+  def queryStatus: IO[Either[MotorError, Motor]] =
+    device.sendCommand("QM").attempt.flatMap {
       case Right(Right(response)) =>
         val responseParts = response.split(",")
         if (responseParts.length >= 5) {
@@ -114,7 +150,6 @@ case class Motor(device: Device, motor1: MotorState, motor2: MotorState) {
         }
       case Left(error) => IO.pure(Left(MotorError.CommandError(error.getMessage)))
     }
-  }
 
   /**
    * Queries the current step positions of the motors from the EBB.
@@ -125,8 +160,8 @@ case class Motor(device: Device, motor1: MotorState, motor2: MotorState) {
    *         If the command is successfully sent and the step positions are obtained, it returns `Right(this)`.
    *         Otherwise, it returns `Left` with a specific `MotorError` indicating the cause of the error.
    */
-  def queryStepPositions: IO[Either[MotorError, Motor]] = {
-    device.sendCommand("QS\r").attempt.flatMap {
+  def queryStepPositions: IO[Either[MotorError, Motor]] =
+    device.sendCommand("QS").attempt.flatMap {
       case Right(Right(response)) =>
         val responseParts = response.split(",")
         if (responseParts.length >= 2) {
@@ -141,7 +176,6 @@ case class Motor(device: Device, motor1: MotorState, motor2: MotorState) {
         }
       case Left(error) => IO.pure(Left(MotorError.CommandError(error.getMessage)))
     }
-  }
 }
 
 object Motor {
@@ -158,12 +192,10 @@ object Motor {
     for {
       motorStatus <- motor.queryStatus
       motorPositions <- motor.queryStepPositions
-    } yield {
-      for {
-        updatedMotorStatus <- motorStatus
-        updatedMotorPositions <- motorPositions
-      } yield updatedMotorPositions.copy(motor1 = updatedMotorStatus.motor1, motor2 = updatedMotorStatus.motor2)
-    }
+    } yield for {
+      updatedMotorStatus <- motorStatus
+      updatedMotorPositions <- motorPositions
+    } yield updatedMotorPositions.copy(motor1 = updatedMotorStatus.motor1, motor2 = updatedMotorStatus.motor2)
   }
 
 }

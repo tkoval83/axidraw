@@ -182,7 +182,7 @@ case class Device(portDescriptor: String, state: DeviceState = Disconnected, ser
 object Device {
 
   /**
-   * Creates a new instance of Device with an available /dev/ttyACM serial port.
+   * Creates a new instance of Device with an available EiBotBoard serial port.
    *
    * @return An `IO[Either[DeviceError, Device]]` representing the device instance, or `Left` with a specific `DeviceError`
    *         indicating the cause of the error if no port is available.
@@ -192,7 +192,7 @@ object Device {
   }
 
   /**
-   * Finds an available /dev/ttyACM serial port.
+   * Finds an available EiBotBoard serial port.
    *
    * @return An `IO[Either[DeviceError, String]]` representing the effect of finding an available port.
    *         If a port is found, it returns `Right(portDescriptor)`. Otherwise, it returns `Left` with a specific `DeviceError`
@@ -200,7 +200,7 @@ object Device {
    */
   private def findAvailablePort(): IO[Either[DeviceError, String]] = IO {
     val ports = SerialPort.getCommPorts
-    val portOpt = ports.find(_.getSystemPortName.startsWith("/dev/ttyACM")).map(_.getSystemPortName)
-    portOpt.toRight(DeviceError.ConnectionError("No available /dev/ttyACM port found"))
+    val portOpt = ports.find(_.getDescriptivePortName().startsWith("EiBotBoard")).map(_.getSystemPortName)
+    portOpt.toRight(DeviceError.ConnectionError("No available serial port found"))
   }
 }

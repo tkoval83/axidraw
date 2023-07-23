@@ -17,22 +17,14 @@ enum AxiDrawModel(val name: String, val width: Double, val height: Double):
   case Mini extends AxiDrawModel("MiniKit2", 6, 4)
 
 /**
- * Represents the plot area of the AxiDraw machine.
- *
- * @param width  the width of the plot area in inches
- * @param height the height of the plot area in inches
- */
-case class PlotArea(width: Double, height: Double)
-
-/**
  * Represents the AxiDraw machine.
  *
  * @param device   the device to which the AxiDraw is connected
  * @param pen      the pen of the AxiDraw
  * @param motor    the motor of the AxiDraw
- * @param plotArea the plot area of the AxiDraw machine
+ * @param model    the model of the AxiDraw
  */
-case class AxiDraw(device: Device, pen: Pen, motor: Motor, plotArea: PlotArea) {
+case class AxiDraw(device: Device, pen: Pen, motor: Motor, model: AxiDrawModel) {
 
   /**
    * Executes a drawing by moving the pen along a sequence of paths.
@@ -54,6 +46,6 @@ object AxiDraw {
    * @param axiDrawModel the model of the AxiDraw
    * @return the created AxiDraw instance wrapped in the IO effect
    */
-  def apply(axiDrawModel: AxiDrawModel): IO[Either[AxiDrawError, AxiDraw]] = ???
+  def apply(model: AxiDrawModel): IO[Either[Throwable, AxiDraw]] = ???
 
 }

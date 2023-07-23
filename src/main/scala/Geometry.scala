@@ -1,7 +1,5 @@
 package com.axidraw
 
-import GeometryError.InvalidLineString
-
 import cats.data.{EitherT, ValidatedNec}
 import cats.implicits.*
 import cats.instances.list.*
@@ -71,6 +69,12 @@ sealed trait Geometry[A <: Geometry[A]]:
    */
   def simplify(tolerance: Double): Either[GeometryError, A]
 
+  /**
+   * Calculates the bounds of the geometry.
+   *
+   * @return Either an error if calculating the bounds fails, or the bounds of the geometry.
+   */
+  def bounds: Either[GeometryError, Bounds]
 
 /**
  * Represents a 2D point in geometric space.
@@ -179,6 +183,14 @@ case class Point(x: Double, y: Double) extends Geometry[Point]:
   override def simplify(tolerance: Double): Either[GeometryError, Point] =
     Right(this)
 
+  /**
+   * Calculates the bounds of the geometry.
+   *
+   * @return Either an error if calculating the bounds fails, or the bounds of the geometry.
+   */
+  def bounds: Either[GeometryError, Bounds] =
+    Right(Bounds(this, this))
+
 /**
  * Represents a LineString in geometric space.
  *
@@ -256,7 +268,24 @@ case class LineString(points: List[Point]) extends Geometry[LineString] {
     Right(LineString(simplifiedPoints))
   }
 
-}
+  /**
+   * Calculates the bounds of the LineString using the convex hull algorithm.
+   *
+   * @return Either an error if calculating the bounds fails, or the bounds of the LineString.
+   */
+  def bounds: Either[GeometryError, Bounds] =
+    if (points.isEmpty) {
+      Left(GeometryError.InvalidLineString("Cannot calculate bounds of an empty LineString."))
+    } else {
+      val convexHull = ConvexHull.convexHull(points)
+      val minX = convexHull.minBy(_.x).x
+      val maxX = convexHull.maxBy(_.x).x
+      val minY = convexHull.minBy(_.y).y
+      val maxY = convexHull.maxBy(_.y).y
+      Right(Bounds(Point(minX, minY), Point(maxX, maxY)))
+    }
+
+  }
 
 /**
  * Represents a Polygon in 2D geometric space.
@@ -353,6 +382,25 @@ case class Polygon(exteriorRing: LineString, interiorRings: List[LineString] = N
       simplifiedInteriors <- interiorRings.traverse(_.simplify(tolerance))
     } yield Polygon(simplifiedExterior, simplifiedInteriors)
 
+  /**
+   * Calculates the bounds of the Polygon using the convex hull algorithm.
+   *
+   * @return Either an error if calculating the bounds fails, or the bounds of the Polygon.
+   */
+  def bounds: Either[GeometryError, Bounds] = {
+    val allPoints = exteriorRing.points
+    if (allPoints.isEmpty) {
+      Left(GeometryError.InvalidPolygon("Cannot calculate bounds of an empty Polygon."))
+    } else {
+      val convexHull = ConvexHull.convexHull(allPoints)
+      val minX = convexHull.minBy(_.x).x
+      val maxX = convexHull.maxBy(_.x).x
+      val minY = convexHull.minBy(_.y).y
+      val maxY = convexHull.maxBy(_.y).y
+      Right(Bounds(Point(minX, minY), Point(maxX, maxY)))
+    }
+  }
+
 }
 
 /**
@@ -423,6 +471,24 @@ case class MultiPoint(points: List[Point]) extends Geometry[MultiPoint] {
    */
   override def simplify(tolerance: Double): Either[GeometryError, MultiPoint] =
     Right(this)
+
+  /**
+   * Calculates the bounds of the MultiPoint using the convex hull algorithm.
+   *
+   * @return Either an error if calculating the bounds fails, or the bounds of the MultiPoint.
+   */
+  def bounds: Either[GeometryError, Bounds] = {
+    if (points.isEmpty) {
+      Left(GeometryError.EmptyGeometry("Cannot calculate bounds of an empty MultiPoint."))
+    } else {
+      val convexHull = ConvexHull.convexHull(points)
+      val minX = convexHull.minBy(_.x).x
+      val maxX = convexHull.maxBy(_.x).x
+      val minY = convexHull.minBy(_.y).y
+      val maxY = convexHull.maxBy(_.y).y
+      Right(Bounds(Point(minX, minY), Point(maxX, maxY)))
+    }
+  }
 
 }
 
@@ -498,78 +564,23 @@ case class MultiPolygon(polygons: List[Polygon]) extends Geometry[MultiPolygon] 
   override def simplify(tolerance: Double): Either[GeometryError, MultiPolygon] =
     polygons.traverse(_.simplify(tolerance)).map(MultiPolygon)
 
-}
-
-/**
- * Represents a collection of geometries in 2D space.
- *
- * @param geometries The list of geometries contained in the collection.
- * @tparam G The type parameter representing the specific subtype of Geometry in the collection.
- */
-case class GeometryCollection[G <: Geometry[G]](geometries: List[Geometry[G]]) extends Geometry[GeometryCollection[G]] {
-
   /**
-   * Translates the collection of geometries by the specified distances along the x and y axes.
+   * Calculates the bounds of the MultiPolygon using the convex hull algorithm.
    *
-   * @param dx The distance to translate along the x-axis.
-   * @param dy The distance to translate along the y-axis.
-   * @return Either an error if the translation fails, or the translated geometry collection.
+   * @return Either an error if calculating the bounds fails, or the bounds of the MultiPolygon.
    */
-  override def translate(dx: Double, dy: Double): Either[GeometryError, GeometryCollection[G]] =
-    geometries.traverse(_.translate(dx, dy)).map(GeometryCollection)
-
-  /**
-   * Rotates the collection of geometries by the specified angle around the given origin point.
-   *
-   * @param angle  The angle of rotation in degrees.
-   * @param origin The origin point for the rotation (default: (0, 0)).
-   * @return Either an error if the rotation fails, or the rotated geometry collection.
-   */
-  override def rotate(angle: Double, origin: Point = Point(0, 0)): Either[GeometryError, GeometryCollection[G]] =
-    geometries.traverse(_.rotate(angle, origin)).map(GeometryCollection)
-
-  /**
-   * Scales the collection of geometries by the specified factor.
-   *
-   * @param factor The scaling factor.
-   * @return Either an error if the scaling fails, or the scaled geometry collection.
-   */
-  override def scale(factor: Double): Either[GeometryError, GeometryCollection[G]] =
-    geometries.traverse(_.scale(factor)).map(GeometryCollection)
-
-  /**
-   * Returns the coordinates of the geometry collection as a list of points.
-   *
-   * @return Either an error if retrieving the coordinates fails, or the list of coordinates.
-   */
-  override def coords: Either[GeometryError, List[Point]] =
-    geometries.traverse(_.coords).map(_.flatten)
-
-  /**
-   * Checks if the geometry collection is valid.
-   *
-   * @return Either an error if validating the geometry collection fails, or a boolean indicating validity.
-   */
-  override def isValid: Either[GeometryError, Boolean] =
-    geometries.traverse(_.isValid) match {
-      case Right(validities) => Right(validities.forall(identity))
-      case Left(error) => Left(error)
+  def bounds: Either[GeometryError, Bounds] = {
+    val allPoints = polygons.flatMap(polygon => polygon.exteriorRing.points ++ polygon.interiorRings.flatMap(_.points))
+    if (allPoints.isEmpty) {
+      Left(GeometryError.InvalidPolygon("Cannot calculate bounds of an empty MultiPolygon."))
+    } else {
+      val convexHull = ConvexHull.convexHull(allPoints)
+      val minX = convexHull.minBy(_.x).x
+      val maxX = convexHull.maxBy(_.x).x
+      val minY = convexHull.minBy(_.y).y
+      val maxY = convexHull.maxBy(_.y).y
+      Right(Bounds(Point(minX, minY), Point(maxX, maxY)))
     }
+  }
 
-  /**
-   * Decomposes the geometry collection into a list of simpler geometries.
-   *
-   * @return Either an error if decomposing the geometry collection fails, or the list of decomposed geometries.
-   */
-  override def decompose: Either[GeometryError, List[GeometryCollection[G]]] =
-    Right(List(this))
-
-  /**
-   * Simplifies the geometry collection by reducing the number of vertices or control points.
-   *
-   * @param tolerance The tolerance parameter for simplification.
-   * @return Either an error if simplifying the geometry collection fails, or the simplified geometry collection.
-   */
-  override def simplify(tolerance: Double): Either[GeometryError, GeometryCollection[G]] =
-    geometries.traverse(_.simplify(tolerance)).map(GeometryCollection)
 }
