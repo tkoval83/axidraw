@@ -23,38 +23,3 @@ To use the AxiDraw Library in your project, add the following dependency to your
 ```scala
 libraryDependencies += "com.axidraw" %% "axidraw-library" % "1.0.0"
 ```
-
-## Usage
-Here's an example of how to use the AxiDraw Library to connect to the AxiDraw machine, execute a drawing, and display a progress bar:
-
-```scala
-import cats.effect.{IO, IOApp}
-import com.axidraw._
-
-object Main extends IOApp.Simple {
-
-  def run: IO[Unit] =
-    AxiDraw(AxiDrawModel.V3).flatMap {
-      case Right(axiDraw) =>
-        val drawing = // create your drawing here
-        val totalPaths = drawing.paths.length
-        val progress = new Progress.Bar(totalPaths)
-
-        def updateProgress(currentPath: Int): IO[Unit] =
-          progress.increment(1) >> progress.render.flatMap { progressString =>
-            IO(print(s"\r$progressString")) >> IO(System.out.flush())
-          }
-
-        def handleResult(result: Either[AxiDrawError, Unit]): IO[Unit] =
-          result.fold(
-            error => progress.stop >> IO(println(s"\nDrawing failed: $error")),
-            _ => progress.done >> IO(println("\nDrawing complete!"))
-          )
-
-        axiDraw.executeDrawing(drawing, updateProgress).flatMap(handleResult)
-
-      case Left(error) =>
-        IO(println(s"Failed to initialize AxiDraw: $error"))
-    }
-}
-```
